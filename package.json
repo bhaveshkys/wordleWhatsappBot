@@ -1,0 +1,27 @@
+{
+  "name": "wordlewhatsappbot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "wordle",
+    "baileys"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "WhatsApp bot for analyzing Wordle results using Baileys",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "fs": "^0.0.1-security",
+    "googleapis": "^154.0.0",
+    "path": "^0.12.7",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

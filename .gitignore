@@ -1,0 +1,9 @@
+# Add this to .gitignore to avoid committing sensitive data
+auth_info_baileys/
+node_modules/
+.env
+*.log
+.DS_Store
+Thumbs.db
+wordlebotdb-12e609807b14.json
+auth_info_baileys
