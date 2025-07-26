@@ -396,6 +396,14 @@ class WordleWhatsAppBot {
                     console.log('   🏆 Sending leaderboard...');
                     await this.sendLeaderboard(chatId);
                     break;
+                case 'daily':
+                    console.log('   📅 Sending daily leaderboard...');
+                    await this.sendDailyLeaderboardCommand(chatId, args[2]);
+                    break;
+                case 'members':
+                    console.log('   👥 Sending member count...');
+                    await this.sendMemberCount(chatId);
+                    break;
                 case 'help':
                     console.log('   ❓ Sending help...');
                     await this.sendHelp(chatId);
@@ -406,6 +414,57 @@ class WordleWhatsAppBot {
             }
         } catch (error) {
             console.error('   ❌ Error handling command:', error);
+        }
+    }
+
+    async sendDailyLeaderboardCommand(chatId, gameNumber) {
+        try {
+            // If no game number provided, try to get the latest game number from recent submissions
+            if (!gameNumber) {
+                // Find the most recent game number from daily submissions
+                let latestGame = 0;
+                for (const key of this.dailySubmissions.keys()) {
+                    const game = parseInt(key.split('-')[1]);
+                    if (game > latestGame) {
+                        latestGame = game;
+                    }
+                }
+                
+                if (latestGame === 0) {
+                    await this.sock.sendMessage(chatId, { 
+                        text: '📅 No daily results found yet! Submit a Wordle result first or specify a game number: `!wordle daily 1234`' 
+                    });
+                    return;
+                }
+                gameNumber = latestGame;
+            }
+
+            await this.sendDailyLeaderboard(chatId, parseInt(gameNumber));
+        } catch (error) {
+            console.error('❌ Error sending daily leaderboard command:', error);
+            await this.sock.sendMessage(chatId, { 
+                text: '❌ Error retrieving daily leaderboard. Please try again.' 
+            });
+        }
+    }
+
+    async sendMemberCount(chatId) {
+        try {
+            const memberCount = await this.db.getGroupMemberCount(chatId);
+            const currentSubmissions = this.dailySubmissions.size > 0 ? 
+                Math.max(...Array.from(this.dailySubmissions.values()).map(set => set.size)) : 0;
+            
+            const memberText = `👥 *Group Member Info*\n\n` +
+                             `📊 Total members: ${memberCount}\n` +
+                             `🎯 Current submissions: ${currentSubmissions}/${memberCount}\n` +
+                             `📈 Participation: ${memberCount > 0 ? ((currentSubmissions/memberCount)*100).toFixed(1) : 0}%`;
+
+            await this.sock.sendMessage(chatId, { text: memberText });
+        } catch (error) {
+            console.error('❌ Error sending member count:', error);
+            await this.sock.sendMessage(chatId, { 
+                text: '❌ Error retrieving member count. Please try again.' 
+            });
         }
     }
 
@@ -476,6 +535,8 @@ class WordleWhatsAppBot {
         const helpText = `🤖 *Wordle Bot Commands*\n\n` +
                         `📊 \`!wordle stats\` - View group statistics\n` +
                         `🏆 \`!wordle leaderboard\` - View overall leaderboard\n` +
+                        `📅 \`!wordle daily [game#]\` - View daily leaderboard\n` +
+                        `👥 \`!wordle members\` - View group member count\n` +
                         `❓ \`!wordle help\` - Show this help\n\n` +
                         `💡 *How it works:*\n` +
                         `Just share your Wordle results in the group and I'll automatically analyze them!\n\n` +
@@ -488,12 +549,8 @@ class WordleWhatsAppBot {
                         `• 6 attempts: 100 points\n` +
                         `• Failed (X): 0 points\n` +
                         `• Bonus: 🟩 = +2 pts, 🟨 = +1 pt\n\n` +
-                        `Example Wordle result:\n` +
-                        `Wordle 1,234 4/6\n` +
-                        `⬛🟨⬛⬛⬛\n` +
-                        `⬛⬛🟩🟨⬛\n` +
-                        `🟨🟩🟩⬛🟩\n` +
-                        `🟩🟩🟩🟩🟩`;
+                        `Example Wordle result:\n` 
+                        
 
         await this.sock.sendMessage(chatId, { text: helpText });
     }
