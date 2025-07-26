@@ -169,11 +169,19 @@ class WordleWhatsAppBot {
             }
         }
 
-        // Skip processing if message is from the bot itself
+        // Skip processing if message is from the bot itself, but allow Wordle results and commands from the bot owner
         if (isFromMe) {
-            console.log('   ℹ️  Skipped processing: Message from bot itself');
-            console.log('   ✅ Message logging complete\n');
-            return;
+            // Check if this is a Wordle result or command from the bot owner
+            const isWordleResult = this.analyzer.isWordleResult(messageText);
+            const isCommand = messageText.startsWith('!wordle');
+            
+            if (isWordleResult || isCommand) {
+                console.log('   ✅ Processing message from bot owner (Wordle result or command)');
+            } else {
+                console.log('   ℹ️  Skipped processing: Message from bot itself');
+                console.log('   ✅ Message logging complete\n');
+                return;
+            }
         }
 
         // Check if message contains Wordle results
