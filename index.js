@@ -393,8 +393,8 @@ class WordleWhatsAppBot {
                     await this.sendGroupStats(chatId);
                     break;
                 case 'leaderboard':
-                    console.log('   🏆 Sending leaderboard...');
-                    await this.sendLeaderboard(chatId);
+                    console.log('   🏆 Sending total leaderboard from database...');
+                    await this.sendTotalLeaderboard(chatId);
                     break;
                 case 'daily':
                     console.log('   📅 Sending daily leaderboard...');
