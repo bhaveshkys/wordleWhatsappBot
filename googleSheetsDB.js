@@ -95,7 +95,7 @@ export class GoogleSheetsDB {
             console.log(`📋 Existing sheets: ${existingSheets.join(', ')}`);
             
             // Create sheets if they don't exist
-            const requiredSheets = ['DailyResults', 'TotalScores', 'GroupMembers'];
+            const requiredSheets = ['DailyResults', 'TotalScores', 'GroupMembers', 'TournamentResults'];
             
             for (const sheetName of requiredSheets) {
                 if (!existingSheets.includes(sheetName)) {
@@ -149,18 +149,28 @@ export class GoogleSheetsDB {
             const totalHeaders = await this.getRange('TotalScores!A1:F1');
             if (totalHeaders.length === 0) {
                 await this.updateRange('TotalScores!A1:F1', [[
-                    'Player', 'TotalGames', 'SolvedGames', 'SolveRate', 'AvgAttempts', 'TotalScore'
+                    'Player', 'TotalScore', 'GamesPlayed', 'AverageScore', 'BestScore', 'LastUpdated'
                 ]]);
                 console.log('✅ Initialized TotalScores headers');
             }
 
-            const memberHeaders = await this.getRange('GroupMembers!A1:C1');
-            if (memberHeaders.length === 0) {
-                await this.updateRange('GroupMembers!A1:C1', [[
-                    'GroupId', 'GroupName', 'MemberCount'
+            const groupHeaders = await this.getRange('GroupMembers!A1:D1');
+            if (groupHeaders.length === 0) {
+                await this.updateRange('GroupMembers!A1:D1', [[
+                    'GroupId', 'GroupName', 'MemberCount', 'LastUpdated'
                 ]]);
                 console.log('✅ Initialized GroupMembers headers');
             }
+            
+            // Initialize tournament headers
+            const tournamentHeaders = await this.getRange('TournamentResults!A1:G1');
+            if (tournamentHeaders.length === 0) {
+                await this.updateRange('TournamentResults!A1:G1', [[
+                    'TournamentId', 'Player', 'TotalScore', 'GamesPlayed', 'AverageScore', 'StartDate', 'EndDate'
+                ]]);
+                console.log('✅ Initialized TournamentResults headers');
+            }
+
         } catch (error) {
             console.error('❌ Error initializing headers:', error);
             throw error;
@@ -407,4 +417,144 @@ export class GoogleSheetsDB {
             return [];
         }
     }
+        // Add these methods before the existing appendRow method
+    
+    async getTournamentResults(tournamentId, startDate, endDate) {
+        try {
+            // Get all daily results within the tournament period
+            const data = await this.getRange('DailyResults!A:H');
+            if (data.length <= 1) return [];
+            
+            const tournamentData = new Map();
+            
+            // Filter results by date range
+            data.slice(1).forEach(row => {
+                const [dateStr, gameNumber, player, attempts, solved, baseScore, emojiPoints, totalScore] = row;
+                const resultDate = new Date(dateStr);
+                
+                if (resultDate >= startDate && resultDate <= endDate) {
+                    if (!tournamentData.has(player)) {
+                        tournamentData.set(player, {
+                            player,
+                            totalScore: 0,
+                            gamesPlayed: 0,
+                            scores: []
+                        });
+                    }
+                    
+                    const playerData = tournamentData.get(player);
+                    const score = parseInt(totalScore) || 0;
+                    playerData.totalScore += score;
+                    playerData.gamesPlayed += 1;
+                    playerData.scores.push(score);
+                }
+            });
+            
+            // Convert to array and calculate averages
+            const results = Array.from(tournamentData.values()).map(player => ({
+                ...player,
+                avgScore: player.gamesPlayed > 0 ? player.totalScore / player.gamesPlayed : 0
+            }));
+            
+            // Sort by total score descending
+            results.sort((a, b) => b.totalScore - a.totalScore);
+            
+            // Save tournament results
+            await this.saveTournamentResults(tournamentId, results, startDate, endDate);
+            
+            return results;
+            
+        } catch (error) {
+            console.error('❌ Error getting tournament results:', error);
+            return [];
+        }
+    }
+    
+    async saveTournamentResults(tournamentId, results, startDate, endDate) {
+        try {
+            // Clear existing tournament results for this tournament
+            const existingData = await this.getRange('TournamentResults!A:G');
+            const filteredData = existingData.filter(row => row[0] !== tournamentId);
+            
+            // Add header back if we cleared everything
+            if (filteredData.length === 0) {
+                filteredData.push(['TournamentId', 'Player', 'TotalScore', 'GamesPlayed', 'AverageScore', 'StartDate', 'EndDate']);
+            }
+            
+            // Add new tournament results
+            results.forEach(player => {
+                filteredData.push([
+                    tournamentId,
+                    player.player,
+                    player.totalScore,
+                    player.gamesPlayed,
+                    player.avgScore.toFixed(2),
+                    startDate.toISOString().split('T')[0],
+                    endDate.toISOString().split('T')[0]
+                ]);
+            });
+            
+            // Update the sheet
+            await this.updateRange('TournamentResults!A:G', filteredData);
+            console.log(`✅ Saved tournament results for ${tournamentId}`);
+            
+        } catch (error) {
+            console.error('❌ Error saving tournament results:', error);
+        }
+    }
+    
+    async getPreviousTournaments() {
+        try {
+            const data = await this.getRange('TournamentResults!A:G');
+            if (data.length <= 1) return [];
+            
+            const tournaments = new Map();
+            
+            // Group by tournament ID
+            data.slice(1).forEach(row => {
+                const [tournamentId, player, totalScore, gamesPlayed, avgScore, startDate, endDate] = row;
+                
+                if (!tournaments.has(tournamentId)) {
+                    tournaments.set(tournamentId, {
+                        tournamentId,
+                        players: [],
+                        startDate,
+                        endDate
+                    });
+                }
+                
+                tournaments.get(tournamentId).players.push({
+                    player,
+                    totalScore: parseInt(totalScore) || 0,
+                    gamesPlayed: parseInt(gamesPlayed) || 0,
+                    avgScore: parseFloat(avgScore) || 0
+                });
+            });
+            
+            // Convert to array and get tournament summaries
+            const tournamentList = Array.from(tournaments.values()).map(tournament => {
+                // Sort players by score
+                tournament.players.sort((a, b) => b.totalScore - a.totalScore);
+                
+                return {
+                    tournamentId: tournament.tournamentId,
+                    winner: tournament.players[0]?.player || 'No participants',
+                    winnerScore: tournament.players[0]?.totalScore || 0,
+                    participants: tournament.players.length,
+                    startDate: tournament.startDate,
+                    endDate: tournament.endDate
+                };
+            });
+            
+            // Sort by tournament ID descending (most recent first)
+            tournamentList.sort((a, b) => b.tournamentId.localeCompare(a.tournamentId));
+            
+            return tournamentList;
+            
+        } catch (error) {
+            console.error('❌ Error getting previous tournaments:', error);
+            return [];
+        }
+    }
 }
+

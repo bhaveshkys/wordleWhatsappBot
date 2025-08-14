@@ -15,7 +15,8 @@ class WordleWhatsAppBot {
         this.targetGroupId = null; // Will be set when group is found
         this.groupMemberCount = 0; // Track group member count
         this.dailySubmissions = new Map(); // Track daily submissions per game
-        
+        this.currentTournament = null;
+        this.tournamentStartDate = null;
         // Configuration
         this.spreadsheetId = '1ve-FHb5UUwlkpz6yY0UxZzeA0fw45VOTET6npSirvlc'; // Replace with your Google Sheets ID
     }
@@ -24,7 +25,8 @@ class WordleWhatsAppBot {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
         
         this.sock = makeWASocket({
-            auth: state
+            auth: state,
+            markOnlineOnConnect: false
         });
 
         this.sock.ev.on('creds.update', saveCreds);
@@ -400,6 +402,14 @@ class WordleWhatsAppBot {
                     console.log('   📅 Sending daily leaderboard...');
                     await this.sendDailyLeaderboardCommand(chatId, args[2]);
                     break;
+                case 'tournament':
+                    console.log('   🏆 Sending tournament leaderboard...');
+                    await this.sendTournamentLeaderboard(chatId, args[2]);
+                    break;
+                case 'tournaments':
+                    console.log('   📜 Sending previous tournaments...');
+                    await this.sendPreviousTournaments(chatId);
+                    break;
                 case 'members':
                     console.log('   👥 Sending member count...');
                     await this.sendMemberCount(chatId);
@@ -536,10 +546,16 @@ class WordleWhatsAppBot {
                         `📊 \`!wordle stats\` - View group statistics\n` +
                         `🏆 \`!wordle leaderboard\` - View overall leaderboard\n` +
                         `📅 \`!wordle daily [game#]\` - View daily leaderboard\n` +
+                        `🏆 \`!wordle tournament [id]\` - View current/specific tournament\n` +
+                        `📜 \`!wordle tournaments\` - View previous tournaments\n` +
                         `👥 \`!wordle members\` - View group member count\n` +
                         `❓ \`!wordle help\` - Show this help\n\n` +
                         `💡 *How it works:*\n` +
                         `Just share your Wordle results in the group and I'll automatically analyze them!\n\n` +
+                        `🏆 *Tournament System:*\n` +
+                        `• Bi-monthly tournaments (every 15 days)\n` +
+                        `• 1st-15th: Tournament 1, 16th-end: Tournament 2\n` +
+                        `• Automatic tournament tracking\n\n` +
                         `🏆 *Scoring System:*\n` +
                         `• 1 attempt: 600 points\n` +
                         `• 2 attempts: 500 points\n` +
@@ -553,6 +569,102 @@ class WordleWhatsAppBot {
                         
 
         await this.sock.sendMessage(chatId, { text: helpText });
+    }
+
+
+      getCurrentTournamentId() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const day = now.getDate();
+        
+        // Calculate tournament number based on 15-day periods
+        let tournamentInMonth;
+        if (day <= 15) {
+            tournamentInMonth = 1;
+        } else {
+            tournamentInMonth = 2;
+        }
+        
+        return `${year}-${month.toString().padStart(2, '0')}-T${tournamentInMonth}`;
+    }
+    
+    getTournamentDateRange(tournamentId) {
+        const [year, month, tournamentPart] = tournamentId.split('-');
+        const tournamentNum = parseInt(tournamentPart.replace('T', ''));
+        const monthNum = parseInt(month);
+        
+        let startDay, endDay;
+        if (tournamentNum === 1) {
+            startDay = 1;
+            endDay = 15;
+        } else {
+            startDay = 16;
+            // Get last day of month
+            endDay = new Date(parseInt(year), monthNum, 0).getDate();
+        }
+        
+        const startDate = new Date(parseInt(year), monthNum - 1, startDay);
+        const endDate = new Date(parseInt(year), monthNum - 1, endDay);
+        
+        return { startDate, endDate };
+    }
+    
+    async sendTournamentLeaderboard(chatId, tournamentId = null) {
+        try {
+            const currentTournamentId = tournamentId || this.getCurrentTournamentId();
+            const { startDate, endDate } = this.getTournamentDateRange(currentTournamentId);
+            
+            const tournamentResults = await this.db.getTournamentResults(currentTournamentId, startDate, endDate);
+            
+            if (tournamentResults.length === 0) {
+                await this.sock.sendMessage(chatId, { 
+                    text: `🏆 *Tournament ${currentTournamentId}*\n\nNo results found for this tournament period.` 
+                });
+                return;
+            }
+            
+            let message = `🏆 *Tournament Leaderboard*\n`;
+            message += `📅 Tournament: ${currentTournamentId}\n`;
+            message += `📆 Period: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}\n\n`;
+            
+            tournamentResults.forEach((player, index) => {
+                const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+                message += `${medal} *${player.player}*\n`;
+                message += `   📊 ${player.totalScore} pts | 🎯 ${player.gamesPlayed} games | 📈 ${player.avgScore.toFixed(1)} avg\n\n`;
+            });
+            
+            await this.sock.sendMessage(chatId, { text: message });
+            
+        } catch (error) {
+            console.error('❌ Error sending tournament leaderboard:', error);
+            await this.sock.sendMessage(chatId, { text: '❌ Error retrieving tournament leaderboard.' });
+        }
+    }
+    
+    async sendPreviousTournaments(chatId) {
+        try {
+            const previousTournaments = await this.db.getPreviousTournaments();
+            
+            if (previousTournaments.length === 0) {
+                await this.sock.sendMessage(chatId, { text: '📜 No previous tournaments found.' });
+                return;
+            }
+            
+            let message = `📜 *Previous Tournaments*\n\n`;
+            
+            previousTournaments.slice(0, 10).forEach((tournament, index) => {
+                message += `🏆 *${tournament.tournamentId}*\n`;
+                message += `🥇 Winner: ${tournament.winner} (${tournament.winnerScore} pts)\n`;
+                message += `👥 Participants: ${tournament.participants}\n\n`;
+            });
+            
+            await this.sock.sendMessage(chatId, { text: message });
+            
+        } catch (error) {
+            console.error('❌ Error sending previous tournaments:', error);
+            await this.sock.sendMessage(chatId, { text: '❌ Error retrieving previous tournaments.' });
+        }
     }
 }
 
