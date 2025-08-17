@@ -228,7 +228,7 @@ class WordleWhatsAppBot {
             const resultWithPlayer = {
                 ...result,
                 player: sender,
-                date: new Date().toISOString().split('T')[0],
+                date: new Date().toLocaleDateString('en-CA'), // Uses local timezone, returns YYYY-MM-DD
                 timestamp: Date.now()
             };
             
